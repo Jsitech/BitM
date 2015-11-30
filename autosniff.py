@@ -1,4 +1,4 @@
-#!/usr/bin/python2
+#!/usr/bin/env python2
 # Author: @jkadijk
 # Base decoderthread layout from the Impacket examples.
 
