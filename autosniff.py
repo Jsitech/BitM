@@ -123,7 +123,7 @@ class ReverseShell(Thread):
 class DecoderThread(Thread):
     def __init__(self, bridge, subnet, arptable):
         # Open interface for capturing.
-        self.pcap = open_live(bridge.bridgename, 1500, 0, 100)
+        self.pcap = open_live(bridge.bridgename, 65536, 0, 100)
 
         # Query the type of the link and instantiate a decoder accordingly.
         datalink = self.pcap.datalink()
