@@ -16,16 +16,17 @@ It can be used on a beaglebone/raspberry pi/... or on any laptop with two ethern
 * Python2 with argparse, pcapy
 * Improved impacket from https://github.com/c0d3z3r0/impacket
 
+## Installation
 
-* Install libs, tools and python2 using the packet manager (e.g. apt-get for debian/ubuntu)
-* Python packages: `pip install argparse pcapy`
-* Impacket
+~~~sh
+aptitude install libpcap bridge-utils ebtables iptables arptables macchanger
+pip install virtualenv
 
-  ~~~sh
-  git clone https://github.com/c0d3z3r0/impacket.git
-  cd impacket
-  python ./setup.py install
-  ~~~
+virtualenv venv
+. venv/bin/activate
+pip install argparse pcapy git+https://github.com/c0d3z3r0/impacket.git
+deactivate
+~~~
 
 ## Usage
 
@@ -42,6 +43,13 @@ It can be used on a beaglebone/raspberry pi/... or on any laptop with two ethern
 * Put the laptop between the victim's and the switch's ethernet cables
 * Run autosniff.py as root and supply the two interface names
 
+  ~~~sh
+  . venv/bin/activate
+  ./autosniff.py <args> <interfaces>
+
+  deactivate
+  ~~~
+
 ### Hidden Services
 
 You can provide hidden services using the `-t` (tcp) and `-u` (udp) parameters
@@ -50,6 +58,7 @@ you want to connect to your service from the outside using the victims ip as
 destination ip.
 
 Example:
+
 * Start the SSH daemon on port 22
 * Run autosniff.py -t 2222:22
 * From outside run `ssh -p2222 root@<victims IP>`
