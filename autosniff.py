@@ -159,7 +159,10 @@ class DecoderThread(Thread):
         time.sleep(0.1)
 
     def packetHandler(self, hdr, data):
-        e = self.decoder.decode(data)
+        try:
+            e = self.decoder.decode(data)
+        except:
+            return
 
         if e.get_ether_type() == impacket.eap.DOT1X_AUTHENTICATION:
             eapol = e.child()
