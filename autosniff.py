@@ -195,6 +195,7 @@ class DecoderThread(Thread):
                                 self.subnet.int2ip(dhcp.getOptionValue("subnet-mask")))
                             self.subnet.subnet = self.subnet.ip2array(self.subnet.int2ip(
                                 dhcp.getOptionValue("subnet-mask") & bootp["yiaddr"]))
+                            self.subnet.dnsip = self.subnet.int2ip(dhcp.getOptionValue("domain-name-server")[0])
                             self.subnet.dhcp = True
 
             else:
@@ -248,6 +249,7 @@ class Subnet:
     maxaddress = None
     clientip = ""
     gatewayip = ""
+    dnsip = ""
     subnetmask = None
     dhcp = False
 
@@ -416,6 +418,8 @@ class Netfilter:
 
         os.system("while ip route del default; do :; done 2>/dev/null")
         os.system("ip route add default via 169.254.66.55 dev mibr")
+        if self.subnet.dnsip:
+            os.system("echo nameserver %s >/etc/resolv.conf" % self.subnet.dnsip)
         print """
 ************************************************************************
 * Warning!                                                             *
