@@ -23,7 +23,11 @@ from impacket.ImpactDecoder import EthDecoder, LinuxSLLDecoder
 
 
 def cmd(c):
-    return subprocess.check_output(c, shell=True)
+    try:
+        res = subprocess.check_output(c, shell=True, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        res = e.output
+    return res
 
 # Signal handler class for Ctrl-c
 class SignalHandler():
