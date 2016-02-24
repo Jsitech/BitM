@@ -82,3 +82,8 @@ featured bash shell.
   For your own safety we block all outgoing ARP traffic with ebtables.
   You will need to provide the --send-ip parameter to get any results.
 * netcat for connections from the attack machine doesn't work - use ncat (nmap) or socat
+
+## Licence
+
+Original licence from https://github.com/Warpnet/BitM:
+Just give me some credits if you build on this and keep it open source :)
