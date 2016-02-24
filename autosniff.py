@@ -125,6 +125,8 @@ class ReverseShell(Thread):
 
 
 class DecoderThread(Thread):
+    protocols = ['DHCP', 'HTTP', 'dot1x', 'ARP', 'TTL']
+
     def __init__(self, bridge, subnet, arptable):
         # Open interface for capturing.
         self.pcap = open_live(bridge.bridgename, 65536, 1, 100)
@@ -141,6 +143,7 @@ class DecoderThread(Thread):
         self.bridge = bridge
         self.subnet = subnet
         self.arptable = arptable
+        self.protocols = args.discovery_protos or self.protocols
 
         Thread.__init__(self)
 
@@ -168,20 +171,37 @@ class DecoderThread(Thread):
         except:
             return
 
-        if e.get_ether_type() == impacket.eap.DOT1X_AUTHENTICATION:
+        if e.get_ether_type() == impacket.ImpactPacket.ARP.ethertype:
+            arp = e.child()
+            if arp.get_op_name(arp.get_ar_op()) == "REPLY":
+                self.arptable.registeraddress(arp.get_ar_spa(), arp.as_hrd(arp.get_ar_sha()))
+            if arp.get_op_name(arp.get_ar_op()) == "REQUEST":
+                self.arptable.registeraddress(arp.get_ar_spa(), arp.as_hrd(arp.get_ar_sha()))
+
+        # Got both interface sides. No more discovery needed
+        if self.bridge.clientsiteint and self.bridge.switchsideint:
+            return
+
+        if 'dot1x' in self.protocols and not self.subnet.dhcp and \
+           e.get_ether_type() == impacket.eap.DOT1X_AUTHENTICATION:
+
             eapol = e.child()
             if eapol.get_packet_type() == eapol.EAP_PACKET:
                 eap = eapol.child()
                 eapr = eap.child()
                 # Only client sends responses with identity
                 if eap.get_code() == eap.RESPONSE and eapr.get_type() == eapr.IDENTITY:
-                    self.subnet.clientmac = e.get_ether_shost()
+                    self.subnet.clientmac = self.subnet.clientmac or e.get_ether_shost()
+                    self.subnet.clientip = self.subnet.clientip or \
+                        self.arptable.mac2ip(self.subnet.get_clientmac)
 
         elif e.get_ether_type() == impacket.ImpactPacket.IP.ethertype:
+
             ip = e.child()
             if isinstance(ip.child(), impacket.ImpactPacket.UDP):
                 udp = ip.child()
-                if isinstance(udp.child(), impacket.dhcp.BootpPacket):
+                if 'DHCP' in self.protocols and \
+                   isinstance(udp.child(), impacket.dhcp.BootpPacket):
                     bootp = udp.child()
                     if isinstance(bootp.child(), impacket.dhcp.DhcpPacket):
                         dhcp = bootp.child()
@@ -202,26 +222,33 @@ class DecoderThread(Thread):
                             self.subnet.dnsip = self.subnet.int2ip(dhcp.getOptionValue("domain-name-server")[0])
                             self.subnet.dhcp = True
 
-            else:
-                if not self.subnet.dhcp:
-                    ttl = ip.get_ip_ttl()
-                    # Uneven but not 1 or 255 ttl means it's probably coming from a router
-                    if (ttl % 2) > 0 and ttl > 1 and ttl != 255:
-                        self.subnet.gatewaymac = e.get_ether_shost()
-                        self.subnet.clientmac = e.get_ether_dhost()
-                        self.subnet.clientip = ip.get_ip_dst()
+            elif isinstance(ip.child(), impacket.ImpactPacket.TCP):
+                tcp = ip.child()
+                if 'HTTP' in self.protocols and \
+                   re.search(r'[A-Z]+ [^ ] HTTP/1\.', tcp.get_data_as_string()):
+                    self.subnet.gatewaymac = self.subnet.gatewaymac or e.get_ether_dhost()
+                    print(self.subnet.get_gatewaymac())
+                    self.subnet.gatewayip = self.subnet.gatewayip or \
+                        self.arptable.mac2ip(self.subnet.get_gatewaymac())
+                    self.subnet.clientmac = self.subnet.clientmac or e.get_ether_shost()
+                    self.subnet.clientip = self.subnet.clientip or ip.get_ip_src()
 
-        elif e.get_ether_type() == impacket.ImpactPacket.ARP.ethertype:
+            elif 'TTL' in self.protocols and not self.subnet.dhcp:
+                ttl = ip.get_ip_ttl()
+                # Uneven but not 1 or 255 ttl means it's probably coming from a router
+                if (ttl % 2) > 0 and ttl > 1 and ttl != 255:
+                    self.subnet.gatewaymac = self.subnet.gatewaymac or e.get_ether_shost()
+                    self.subnet.gatewayip = self.subnet.gatewayip or \
+                        self.arptable.mac2ip(self.subnet.get_gatewaymac())
+                    self.subnet.clientmac = self.subnet.clientmac or e.get_ether_dhost()
+                    self.subnet.clientip = self.subnet.clientip or ip.get_ip_dst()
+
+        elif 'ARP' in self.protocols and not self.subnet.dhcp and \
+             e.get_ether_type() == impacket.ImpactPacket.ARP.ethertype:
+
             arp = e.child()
-            if not self.subnet.dhcp:
-                self.subnet.registeraddress(arp.get_ar_tpa())
-                self.subnet.registeraddress(arp.get_ar_spa())
-
-            if arp.get_op_name(arp.get_ar_op()) == "REPLY":
-                #print "got arp reply"
-                self.arptable.registeraddress(arp.get_ar_spa(), arp.as_hrd(arp.get_ar_sha()))
-            if arp.get_op_name(arp.get_ar_op()) == "REQUEST":
-                self.arptable.registeraddress(arp.get_ar_spa(), arp.as_hrd(arp.get_ar_sha()))
+            self.subnet.registeraddress(arp.get_ar_tpa())
+            self.subnet.registeraddress(arp.get_ar_spa())
 
 
 class ArpTable:
@@ -236,6 +263,13 @@ class ArpTable:
     def printip(self, ip_array):
         ip_string = socket.inet_ntoa(struct.pack('BBBB', *ip_array))
         return ip_string
+
+    def mac2ip(self, hw_address):
+        try:
+            ip = self.table.keys()[self.table.values().index(hw_address)]
+        except ValueError:
+            return None
+        return ip
 
     def updatekernel(self):
         tmptab = self.table.copy()
@@ -539,7 +573,9 @@ def main():
           (bridge.bridgename, decoder.pcap.getnet(), decoder.pcap.getmask(), decoder.pcap.datalink())
 
     while True:
-        if subnet.clientip and subnet.gatewaymac and subnet.clientmac:
+        #TODO: what if there's no gw??!!
+        if subnet.clientip and subnet.clientmac \
+           and subnet.gatewayip and subnet.gatewaymac:
             print subnet
 
             bridge.setinterfacesides()
@@ -573,6 +609,11 @@ if __name__ == '__main__':
                         help="Don't set up NAT and disallow any outgoing "
                              "traffic. This is useful if you just want to "
                              "sniff the traffic.")
+    parser.add_argument('-d', '--discovery-protos', nargs='*', default=[],
+                        metavar="<PROTO>", choices=DecoderThread.protocols,
+                        help="Ordered list of protocols to use for network "
+                             "info discovery. Currently supported and default"
+                             ": " + ', '.join(DecoderThread.protocols) + ".")
     parser.add_argument('-t', '--hidden-tcp', nargs='*', default=[],
                         metavar="<rPORT>:<lPORT>",
                         help="Create a hidden service where <lPORT> is"
