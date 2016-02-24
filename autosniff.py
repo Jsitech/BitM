@@ -602,12 +602,14 @@ if __name__ == '__main__':
                              "sleep between connect retries. This is useful "
                              "to prevent massive connection tries and thereby "
                              "decrease the risk of being discovered.")
-    parser.add_argument('ifaces', metavar='IFACE', nargs='*',
-                        default=['eth1', 'eth2'], help='Two interfaces')
+    parser.add_argument('-i', '--ifaces', metavar='<IF>', nargs=2,
+                        default=['eth1', 'eth2'],
+                        help='Unordered list of two interfaces. If not set '
+                             'the default "eth1 eth2" is used.')
     args = parser.parse_args()
 
-    if len(args.ifaces) not in (0, 2):
-        parser.error('Either give two interfaces or none to use the ' +
-                     'default "eth1 eth2"')
+    for iface in args.ifaces:
+        if re.search('does not exist', cmd("ip link show %s" % iface)):
+            parser.error('Interface %s does not exist.' % iface)
 
     main()
